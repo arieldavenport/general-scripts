@@ -19,3 +19,19 @@ subfolder with its own README.
 | [`README.md`](file-replication-monitoring/README.md) | Full runbook: prereqs, deploy, task registration, verification matrix. |
 
 See the [project runbook](file-replication-monitoring/README.md) to deploy.
+
+## Adding a new project
+
+Each project gets its own subfolder with a self-contained README. To add one:
+
+1. Copy the template folder:
+   ```bash
+   cp -r _template my-new-project
+   ```
+2. Fill in `my-new-project/README.md` (description, files, prerequisites, usage,
+   verification) and drop your scripts alongside it.
+3. Add the project to the **Index** table above — one row with the folder link,
+   a one-line description, and the stack. Add a per-file table if it helps.
+
+`_template/` is the starting point, not a real project; leave it in place.
+
