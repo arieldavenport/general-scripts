@@ -1,0 +1,57 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# File Replication — Operations\nPure → Azure Files mirror health. Set the time range above (default last 7 days)."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "Event\n| where EventLog == 'Application' and Source == 'FileRepl' and EventID in (1000,1001)\n| top 1 by TimeGenerated desc\n| extend J = parse_json(extract(@'(\\{.*\\})', 1, RenderedDescription))\n| project ['Last run']=TimeGenerated, Status=tostring(J.Status), ExitCode=toint(J.ExitCode), DurationSec=toint(J.DurationSec), FilesCopied=toint(J.FilesCopied), FilesFailed=toint(J.FilesFailed), Purged=toint(J.FilesExtra)",
+        "size": 3,
+        "title": "Most recent run",
+        "queryType": 0,
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "Event\n| where EventLog == 'Application' and Source == 'FileRepl' and EventID in (1000,1001)\n| summarize LastCompletion = max(TimeGenerated)\n| extend MinutesSinceLastRun = datetime_diff('minute', now(), LastCompletion) * -1",
+        "size": 4,
+        "title": "RPO lag (minutes since last completion)",
+        "queryType": 0,
+        "visualization": "stat"
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "Event\n| where EventLog == 'Application' and Source == 'FileRepl' and EventID == 1000\n| extend J = parse_json(extract(@'(\\{.*\\})', 1, RenderedDescription))\n| project TimeGenerated, DurationSec=toint(J.DurationSec), FilesCopied=toint(J.FilesCopied), Purged=toint(J.FilesExtra)\n| render timechart",
+        "size": 0,
+        "title": "Trend — duration, files copied, files purged",
+        "queryType": 0,
+        "visualization": "timechart"
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "Event\n| where EventLog == 'Application' and Source == 'FileRepl' and EventID in (1001,1002)\n| extend J = parse_json(extract(@'(\\{.*\\})', 1, RenderedDescription))\n| project TimeGenerated, EventID, Detail=RenderedDescription\n| order by TimeGenerated desc",
+        "size": 0,
+        "title": "Failures and delete-canary events",
+        "queryType": 0,
+        "visualization": "table"
+      }
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}
