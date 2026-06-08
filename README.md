@@ -8,6 +8,7 @@ subfolder with its own README.
 | Project | What it does | Stack |
 |---------|--------------|-------|
 | [`file-replication-monitoring/`](file-replication-monitoring/) | Azure-native monitoring for a robocopy `/MIR` mirror from an on-prem Pure SMB share to Azure Files. Wrapper script → Windows Event Log → Azure Monitor Agent → Log Analytics → email alerts. | PowerShell, Bicep, KQL |
+| [`exchange-mailbox-health/`](exchange-mailbox-health/) | Two read-only scripts for an Exchange 2016 admin: mailbox size/usage report to CSV, and a basic server health check (services, DB mount/backup, DAG, queues, disk). | PowerShell |
 
 ### file-replication-monitoring
 
