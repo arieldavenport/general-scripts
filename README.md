@@ -8,6 +8,7 @@ subfolder with its own README.
 | Project | What it does | Stack |
 |---------|--------------|-------|
 | [`file-replication-monitoring/`](file-replication-monitoring/) | Azure-native monitoring for a robocopy `/MIR` mirror from an on-prem Pure SMB share to Azure Files. Wrapper script → Windows Event Log → Azure Monitor Agent → Log Analytics → email alerts. | PowerShell, Bicep, KQL |
+| [`dnsfilter-removal/`](dnsfilter-removal/) | Uninstalls the DNSFilter Windows Roaming Client ("DNS Agent") and blocks reinstalls via hosts sinkhole + firewall, locked install dirs, and IFEO execution blocks. One-command rollback. | PowerShell |
 
 ### file-replication-monitoring
 
