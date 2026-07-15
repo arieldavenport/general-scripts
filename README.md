@@ -9,6 +9,7 @@ subfolder with its own README.
 |---------|--------------|-------|
 | [`file-replication-monitoring/`](file-replication-monitoring/) | Azure-native monitoring for a robocopy `/MIR` mirror from an on-prem Pure SMB share to Azure Files. Wrapper script → Windows Event Log → Azure Monitor Agent → Log Analytics → email alerts. | PowerShell, Bicep, KQL |
 | [`dnsfilter-removal/`](dnsfilter-removal/) | Uninstalls the DNSFilter Windows Roaming Client ("DNS Agent") and blocks reinstalls via hosts sinkhole + firewall, locked install dirs, and IFEO execution blocks. One-command rollback. | PowerShell |
+| [`keepaware-removal/`](keepaware-removal/) | Forcefully removes the Keep Aware force-installed browser extension across Chromium browsers (and optionally Firefox) and blocks reinstalls via browser policy blocklist + hosts sinkhole + firewall. One-command rollback. | PowerShell |
 
 ### file-replication-monitoring
 
@@ -20,6 +21,14 @@ subfolder with its own README.
 | [`README.md`](file-replication-monitoring/README.md) | Full runbook: prereqs, deploy, task registration, verification matrix. |
 
 See the [project runbook](file-replication-monitoring/README.md) to deploy.
+
+### keepaware-removal
+
+| File | Purpose |
+|------|---------|
+| [`Remove-KeepAware.ps1`](keepaware-removal/Remove-KeepAware.ps1) | Main script. Removes the force-installed extension and applies the reinstall blocks. Supports `-Mode Full/Uninstall/Block/Restore` and `-WhatIf`. |
+| [`Test-KeepAwareRemoval.ps1`](keepaware-removal/Test-KeepAwareRemoval.ps1) | Read-only verification. Confirms the extension is gone/blocked in every browser; exits non-zero on any failure. |
+| [`README.md`](keepaware-removal/README.md) | Full runbook: what it does, prerequisites, usage, verification matrix, notes. |
 
 ## Adding a new project
 
