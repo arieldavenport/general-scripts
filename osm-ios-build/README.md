@@ -14,6 +14,29 @@ for a device you can't ship to, or you want to verify what you're running.
 OSM is GPL-3, so building and installing your own copy is squarely within your
 rights.
 
+## Building instead of buying: do the arithmetic first
+
+Building from source to avoid the App Store price is legitimate — GPL-3 grants
+exactly that right, and the published source is the current shipping code. But it
+is frequently *more* expensive than the app:
+
+| Requirement | Cost |
+|---|---|
+| Mac with Xcode | Xcode is free; the Mac is not. There is no cross-compile path. |
+| Qt for iOS | Free (open-source builds). |
+| Apple Developer account — **free tier** | $0, but provisioning profiles **expire after 7 days**. The app stops launching and must be rebuilt and reinstalled weekly, with the Mac and device in hand. |
+| Apple Developer account — **paid tier** | **$99/year** — recurring, versus a one-time App Store purchase. |
+
+Rules of thumb:
+
+- **Mac + paid developer account already?** Building costs nothing extra. Go ahead.
+- **Mac, no developer account?** Free-tier signing works, but you re-sign every
+  7 days indefinitely. Tools like AltStore/SideStore automate this over Wi-Fi.
+- **No Mac?** Buying the app is far cheaper than the hardware.
+
+You also give up App Store auto-updates, and this script is untested on macOS
+(see Notes) — budget time for the first build.
+
 ## Why this project exists
 
 There is **no iOS port to write**. The upstream tree already contains a complete,
