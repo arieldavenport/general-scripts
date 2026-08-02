@@ -9,6 +9,7 @@ subfolder with its own README.
 |---------|--------------|-------|
 | [`file-replication-monitoring/`](file-replication-monitoring/) | Azure-native monitoring for a robocopy `/MIR` mirror from an on-prem Pure SMB share to Azure Files. Wrapper script → Windows Event Log → Azure Monitor Agent → Log Analytics → email alerts. | PowerShell, Bicep, KQL |
 | [`dnsfilter-removal/`](dnsfilter-removal/) | Uninstalls the DNSFilter Windows Roaming Client ("DNS Agent") and blocks reinstalls via hosts sinkhole + firewall, locked install dirs, and IFEO execution blocks. One-command rollback. | PowerShell |
+| [`osm-ios-build/`](osm-ios-build/) | Builds [Open Sound Meter](https://github.com/psmokotnin/osm) for iOS from source on macOS. Sets the Metal backend and installs `lib.metallib` at the bundle root — the two gaps qmake leaves in Xcode-generated iOS projects. | Bash, qmake, Xcode |
 
 ### file-replication-monitoring
 
