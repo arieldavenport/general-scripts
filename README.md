@@ -9,6 +9,7 @@ subfolder with its own README.
 |---------|--------------|-------|
 | [`file-replication-monitoring/`](file-replication-monitoring/) | Azure-native monitoring for a robocopy `/MIR` mirror from an on-prem Pure SMB share to Azure Files. Wrapper script → Windows Event Log → Azure Monitor Agent → Log Analytics → email alerts. | PowerShell, Bicep, KQL |
 | [`dnsfilter-removal/`](dnsfilter-removal/) | Uninstalls the DNSFilter Windows Roaming Client ("DNS Agent") and blocks reinstalls via hosts sinkhole + firewall, locked install dirs, and IFEO execution blocks. One-command rollback. | PowerShell |
+| [`rapidrecovery-repo-sparsify/`](rapidrecovery-repo-sparsify/) | Reclaims pre-provisioned empty space from Quest Rapid Recovery DVM repository container files by making them NTFS-sparse and punching out never-written zero regions. Multi-threaded scanner with a thread-count sweep, plus a live size monitor. | PowerShell, C# (P/Invoke) |
 
 ### file-replication-monitoring
 
@@ -20,6 +21,16 @@ subfolder with its own README.
 | [`README.md`](file-replication-monitoring/README.md) | Full runbook: prereqs, deploy, task registration, verification matrix. |
 
 See the [project runbook](file-replication-monitoring/README.md) to deploy.
+
+### rapidrecovery-repo-sparsify
+
+| File | Purpose |
+|------|---------|
+| [`SparsifyMT.ps1`](rapidrecovery-repo-sparsify/SparsifyMT.ps1) | Multi-threaded scanner/sparsifier. Measure-only by default; `-Apply` sets the NTFS sparse flag and punches zero ranges via `FSCTL_SET_ZERO_DATA`. `-Sweep` benchmarks thread counts to find the fastest for the storage. |
+| [`WatchSize.ps1`](rapidrecovery-repo-sparsify/WatchSize.ps1) | Read-only live monitor of a file's on-disk (allocated) size via `GetCompressedFileSize`, plus volume free space and a GB/min reclaim rate. |
+| [`README.md`](rapidrecovery-repo-sparsify/README.md) | Full runbook: prereqs, sweep/measure/apply workflow, verification, and caveats. |
+
+See the [project runbook](rapidrecovery-repo-sparsify/README.md) to run.
 
 ## Adding a new project
 
