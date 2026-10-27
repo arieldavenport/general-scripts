@@ -71,6 +71,9 @@ Knobs you may want to touch:
 
 - `-Domains` — the domain list sinkholed in the hosts file.
 - `-ResolverIPs` — DNSFilter resolver IPs blocked outbound.
+- `-FirewallBlockBinaries` — also add per-binary outbound firewall rules (off by
+  default; redundant with the IFEO block and slow to create). The resolver-IP
+  rule is always created regardless.
 - `-LogPath` — defaults to `C:\Windows\Temp\Remove-DNSFilter.log`.
 
 If PowerShell blocks the script, unblock it for the session:
@@ -103,3 +106,19 @@ If PowerShell blocks the script, unblock it for the session:
   script also removes leftovers directly in case the MSI is already gone.
 - Everything is reversible via `-Mode Restore` except the uninstall itself
   (re-deploy from the DNSFilter dashboard if you need the agent back).
+- **Hosts file is edited via a shared-handle (.NET) write with retry/backoff.**
+  `etc\hosts` is frequently held open by the DNS Client service or a security
+  agent; the plain `Add-Content` approach fails with *"being used by another
+  process"* / *"Stream was not readable"*. The managed block is delimited by
+  `# DNSFilter-Block` markers and is strip-and-rewritten each run, so re-runs
+  never stack duplicates.
+- **Each phase is isolated.** A failure in one step (e.g. a hosts file locked
+  past all retries) is logged and the remaining steps still run — so a hosts
+  hiccup no longer prevents the filesystem and policy blocks from being applied.
+  Re-run the script (idempotent) or `.\Test-DNSFilterRemoval.ps1` to confirm the
+  final state.
+- **Firewall rules are kept minimal for speed.** The NetSecurity cmdlets
+  (`New-NetFirewallRule`/`Get-NetFirewallRule`) are slow, and enumerating the
+  rule table once per candidate path stalls for minutes. The default creates a
+  single resolver-IP block rule; existing rules are enumerated once. Use
+  `-FirewallBlockBinaries` only if you want the extra per-binary rules.

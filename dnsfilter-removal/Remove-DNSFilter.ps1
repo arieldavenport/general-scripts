@@ -96,6 +96,12 @@ param(
 
     [string[]]$ResolverIPs = @('103.247.36.36', '103.247.37.37'),
 
+    # Also add per-binary outbound firewall rules. Off by default: the IFEO
+    # policy block already stops the agent binaries from launching at all, and
+    # creating ~dozens of NetSecurity rules is slow. The resolver-IP firewall
+    # rule is always created regardless of this switch.
+    [switch]$FirewallBlockBinaries,
+
     [string]$LogPath = (Join-Path $env:WINDIR 'Temp\Remove-DNSFilter.log')
 )
 
@@ -149,6 +155,83 @@ function Write-Log {
     $color = @{ INFO = 'Gray'; WARN = 'Yellow'; ERROR = 'Red'; OK = 'Green' }[$Level]
     Write-Host $line -ForegroundColor $color
     try { Add-Content -Path $LogPath -Value $line -ErrorAction SilentlyContinue } catch { }
+}
+
+function Invoke-WithRetry {
+    # Retry a scriptblock with exponential backoff. Used for the hosts file,
+    # which is routinely held open by the DNS Client service / security agents.
+    param([scriptblock]$Script, [int]$Attempts = 6, [int]$BaseMs = 400)
+    for ($i = 1; $i -le $Attempts; $i++) {
+        try { return (& $Script) }
+        catch {
+            if ($i -eq $Attempts) { throw }
+            $wait = [int]($BaseMs * [math]::Pow(2, $i - 1))
+            Write-Log "Attempt $i failed ($($_.Exception.Message)); retrying in ${wait}ms..." 'WARN'
+            Start-Sleep -Milliseconds $wait
+        }
+    }
+}
+
+function Invoke-Step {
+    # Run one phase so a failure logs and the remaining phases still run,
+    # instead of $ErrorActionPreference='Stop' aborting the whole script.
+    param([string]$Name, [scriptblock]$Action)
+    try { & $Action }
+    catch { Write-Log "Step '$Name' failed: $($_.Exception.Message)" 'ERROR' }
+}
+
+function Get-HostsLines {
+    # Read the hosts file with a shared handle (FileShare.ReadWrite) so we can
+    # open it even while another process holds it, and retry on contention.
+    Invoke-WithRetry {
+        if (-not (Test-Path $HostsPath)) { return @() }
+        $sr = $null
+        $fs = [System.IO.File]::Open($HostsPath, [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try {
+            $sr = New-Object System.IO.StreamReader($fs)
+            $text = $sr.ReadToEnd()
+        } finally {
+            if ($sr) { $sr.Dispose() }
+            $fs.Dispose()
+        }
+        return , ($text -split "`r?`n")
+    }
+}
+
+function Set-HostsText {
+    # Overwrite the hosts file atomically with a shared handle + retry. Clears
+    # the read-only attribute first if some tool set it.
+    param([string]$Text)
+    $item = Get-Item -LiteralPath $HostsPath -Force -ErrorAction SilentlyContinue
+    if ($item -and $item.IsReadOnly) { $item.IsReadOnly = $false }
+    Invoke-WithRetry {
+        $fs = [System.IO.File]::Open($HostsPath, [System.IO.FileMode]::Create,
+            [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        try {
+            $bytes = [System.Text.Encoding]::ASCII.GetBytes($Text)
+            $fs.Write($bytes, 0, $bytes.Length)
+            $fs.Flush($true)
+        } finally { $fs.Dispose() }
+    }
+}
+
+function Remove-ManagedHostsBlock {
+    # Strip the delimited block this script previously added (and a dangling
+    # start marker from a half-written run), so re-runs stay idempotent.
+    param([string[]]$Lines)
+    $start = -1; $end = -1
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        if ($Lines[$i] -like "*$HostsMarker >>>") { $start = $i }
+        elseif ($Lines[$i] -like "*$HostsMarker <<<") { $end = $i; break }
+    }
+    if ($start -lt 0) { return $Lines }
+    if ($end -lt 0) { $end = $Lines.Count - 1 }   # recover from a partial write
+    $from = $start
+    if ($from -gt 0 -and $Lines[$from - 1] -eq '') { $from-- }  # drop the lead blank line
+    $before = if ($from -gt 0) { $Lines[0..($from - 1)] } else { @() }
+    $after = if ($end -lt ($Lines.Count - 1)) { $Lines[($end + 1)..($Lines.Count - 1)] } else { @() }
+    return @($before) + @($after)
 }
 
 # ---- Uninstall --------------------------------------------------------------
@@ -247,57 +330,77 @@ function Remove-Leftovers {
 
 # ---- Block: network ---------------------------------------------------------
 function Block-Network {
-    # Hosts file sinkhole.
-    $existing = if (Test-Path $HostsPath) { Get-Content $HostsPath } else { @() }
-    $toAdd = foreach ($d in $Domains) {
-        if ($existing -notmatch [regex]::Escape($d)) {
-            "0.0.0.0`t$d"
+    # Hosts file sinkhole. Strip any block we added before and rewrite it in one
+    # atomic, retried write (the hosts file is often held open by another
+    # process). A hosts failure must not stop the firewall rules below.
+    if ($PSCmdlet.ShouldProcess($HostsPath, "Sinkhole $($Domains.Count) DNSFilter domain(s)")) {
+        try {
+            $lines = @(Get-HostsLines)
+            $lines = @(Remove-ManagedHostsBlock $lines)
+            $block = @('', ($HostsMarker + ' >>>'))
+            $block += ($Domains | ForEach-Object { "0.0.0.0`t$_" })
+            $block += ($HostsMarker + ' <<<')
+            $new = (($lines + $block) -join "`r`n").TrimEnd("`r", "`n") + "`r`n"
+            Set-HostsText $new
+            Write-Log "Sinkholed $($Domains.Count) domain(s) in hosts file." 'OK'
+        } catch {
+            Write-Log "Hosts sinkhole failed after retries: $($_.Exception.Message)" 'ERROR'
         }
-    }
-    if ($toAdd) {
-        if ($PSCmdlet.ShouldProcess($HostsPath, "Sinkhole $($toAdd.Count) DNSFilter domain(s)")) {
-            Add-Content -Path $HostsPath -Value ('', $HostsMarker + ' >>>')
-            Add-Content -Path $HostsPath -Value $toAdd
-            Add-Content -Path $HostsPath -Value ($HostsMarker + ' <<<')
-            Write-Log "Sinkholed $($toAdd.Count) domain(s) in hosts file." 'OK'
-        }
-    } else {
-        Write-Log 'Hosts file already contains the DNSFilter domains.' 'INFO'
     }
 
-    # Outbound firewall: block agent binaries and resolver IPs.
-    foreach ($exe in $AgentExeNames) {
-        foreach ($dir in $InstallDirs) {
-            $path = Join-Path $dir $exe
-            $rule = "$FirewallTag prog $exe ($dir)"
-            if (-not (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue)) {
-                if ($PSCmdlet.ShouldProcess($rule, 'Add outbound block firewall rule')) {
-                    New-NetFirewallRule -DisplayName $rule -Direction Outbound -Action Block `
-                        -Program $path -Profile Any -ErrorAction SilentlyContinue | Out-Null
-                }
-            }
-        }
-    }
+    # Outbound firewall. Enumerate our existing rules ONCE (the NetSecurity
+    # cmdlets are slow and a per-item Get-NetFirewallRule in a loop stalls), then
+    # create only what's missing.
+    $existingRules = @(Get-NetFirewallRule -DisplayName "$FirewallTag*" -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty DisplayName)
+
+    # Resolver-IP block is the meaningful network control (one rule, always).
     $ipRule = "$FirewallTag resolvers"
-    if (-not (Get-NetFirewallRule -DisplayName $ipRule -ErrorAction SilentlyContinue)) {
+    if ($existingRules -notcontains $ipRule) {
         if ($PSCmdlet.ShouldProcess($ipRule, 'Add outbound block to DNSFilter resolver IPs')) {
             New-NetFirewallRule -DisplayName $ipRule -Direction Outbound -Action Block `
                 -RemoteAddress $ResolverIPs -Profile Any -ErrorAction SilentlyContinue | Out-Null
             Write-Log "Blocked outbound traffic to resolver IPs: $($ResolverIPs -join ', ')." 'OK'
         }
+    } else {
+        Write-Log 'Resolver-IP firewall rule already present.' 'INFO'
+    }
+
+    # Per-binary rules are opt-in (redundant with the IFEO block, and slow).
+    if ($FirewallBlockBinaries) {
+        $progDirs = @($InstallDirs | Where-Object { $_ -match 'Program Files' })
+        $total = $AgentExeNames.Count * $progDirs.Count
+        $n = 0
+        foreach ($exe in $AgentExeNames) {
+            foreach ($dir in $progDirs) {
+                $n++
+                $rule = "$FirewallTag prog $exe ($dir)"
+                if ($existingRules -notcontains $rule -and
+                    $PSCmdlet.ShouldProcess($rule, "Add outbound block firewall rule ($n/$total)")) {
+                    New-NetFirewallRule -DisplayName $rule -Direction Outbound -Action Block `
+                        -Program (Join-Path $dir $exe) -Profile Any -ErrorAction SilentlyContinue | Out-Null
+                }
+            }
+        }
+        Write-Log "Added per-binary outbound firewall rules ($total requested)." 'OK'
     }
     Write-Log 'Network block applied.' 'OK'
 }
 
 function Unblock-Network {
-    if (Test-Path $HostsPath) {
-        $content = Get-Content $HostsPath
-        $start = ($content | Select-String -SimpleMatch ($HostsMarker + ' >>>')).LineNumber
-        $end = ($content | Select-String -SimpleMatch ($HostsMarker + ' <<<')).LineNumber
-        if ($start -and $end -and $PSCmdlet.ShouldProcess($HostsPath, 'Remove DNSFilter sinkhole block')) {
-            $kept = $content[0..($start - 2)] + $content[$end..($content.Count - 1)]
-            Set-Content -Path $HostsPath -Value $kept
-            Write-Log 'Removed DNSFilter domains from hosts file.' 'OK'
+    if ((Test-Path $HostsPath) -and $PSCmdlet.ShouldProcess($HostsPath, 'Remove DNSFilter sinkhole block')) {
+        try {
+            $lines = @(Get-HostsLines)
+            $kept = @(Remove-ManagedHostsBlock $lines)
+            if ($kept.Count -ne $lines.Count) {
+                $new = (($kept) -join "`r`n").TrimEnd("`r", "`n") + "`r`n"
+                Set-HostsText $new
+                Write-Log 'Removed DNSFilter domains from hosts file.' 'OK'
+            } else {
+                Write-Log 'No DNSFilter block found in hosts file.' 'INFO'
+            }
+        } catch {
+            Write-Log "Hosts cleanup failed after retries: $($_.Exception.Message)" 'ERROR'
         }
     }
     Get-NetFirewallRule -DisplayName "$FirewallTag*" -ErrorAction SilentlyContinue | ForEach-Object {
@@ -385,29 +488,31 @@ if (-not ($BlockNetwork -or $BlockFilesystem -or $BlockPolicy)) {
     $BlockNetwork = $true; $BlockFilesystem = $true; $BlockPolicy = $true
 }
 
+# Each phase is wrapped so one failure (e.g. a transiently locked hosts file)
+# is logged and the remaining phases still run.
 switch ($Mode) {
     'Uninstall' {
-        Stop-RemoveServices
-        Uninstall-DNSFilter
-        Remove-Leftovers
+        Invoke-Step 'Stop services' { Stop-RemoveServices }
+        Invoke-Step 'Uninstall' { Uninstall-DNSFilter }
+        Invoke-Step 'Remove leftovers' { Remove-Leftovers }
     }
     'Block' {
-        if ($BlockNetwork) { Block-Network }
-        if ($BlockFilesystem) { Block-Filesystem }
-        if ($BlockPolicy) { Block-Policy }
+        if ($BlockNetwork) { Invoke-Step 'Network block' { Block-Network } }
+        if ($BlockFilesystem) { Invoke-Step 'Filesystem block' { Block-Filesystem } }
+        if ($BlockPolicy) { Invoke-Step 'Policy block' { Block-Policy } }
     }
     'Full' {
-        Stop-RemoveServices
-        Uninstall-DNSFilter
-        Remove-Leftovers
-        if ($BlockNetwork) { Block-Network }
-        if ($BlockFilesystem) { Block-Filesystem }
-        if ($BlockPolicy) { Block-Policy }
+        Invoke-Step 'Stop services' { Stop-RemoveServices }
+        Invoke-Step 'Uninstall' { Uninstall-DNSFilter }
+        Invoke-Step 'Remove leftovers' { Remove-Leftovers }
+        if ($BlockNetwork) { Invoke-Step 'Network block' { Block-Network } }
+        if ($BlockFilesystem) { Invoke-Step 'Filesystem block' { Block-Filesystem } }
+        if ($BlockPolicy) { Invoke-Step 'Policy block' { Block-Policy } }
     }
     'Restore' {
-        Unblock-Network
-        Unblock-Filesystem
-        Unblock-Policy
+        Invoke-Step 'Unblock network' { Unblock-Network }
+        Invoke-Step 'Unblock filesystem' { Unblock-Filesystem }
+        Invoke-Step 'Unblock policy' { Unblock-Policy }
         Write-Log 'Blocks removed. (This does not reinstall the agent.)' 'INFO'
     }
 }
