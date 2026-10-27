@@ -71,6 +71,9 @@ Knobs you may want to touch:
 
 - `-Domains` — the domain list sinkholed in the hosts file.
 - `-ResolverIPs` — DNSFilter resolver IPs blocked outbound.
+- `-FirewallBlockBinaries` — also add per-binary outbound firewall rules (off by
+  default; redundant with the IFEO block and slow to create). The resolver-IP
+  rule is always created regardless.
 - `-LogPath` — defaults to `C:\Windows\Temp\Remove-DNSFilter.log`.
 
 If PowerShell blocks the script, unblock it for the session:
@@ -114,3 +117,8 @@ If PowerShell blocks the script, unblock it for the session:
   hiccup no longer prevents the filesystem and policy blocks from being applied.
   Re-run the script (idempotent) or `.\Test-DNSFilterRemoval.ps1` to confirm the
   final state.
+- **Firewall rules are kept minimal for speed.** The NetSecurity cmdlets
+  (`New-NetFirewallRule`/`Get-NetFirewallRule`) are slow, and enumerating the
+  rule table once per candidate path stalls for minutes. The default creates a
+  single resolver-IP block rule; existing rules are enumerated once. Use
+  `-FirewallBlockBinaries` only if you want the extra per-binary rules.

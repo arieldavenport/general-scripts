@@ -96,6 +96,12 @@ param(
 
     [string[]]$ResolverIPs = @('103.247.36.36', '103.247.37.37'),
 
+    # Also add per-binary outbound firewall rules. Off by default: the IFEO
+    # policy block already stops the agent binaries from launching at all, and
+    # creating ~dozens of NetSecurity rules is slow. The resolver-IP firewall
+    # rule is always created regardless of this switch.
+    [switch]$FirewallBlockBinaries,
+
     [string]$LogPath = (Join-Path $env:WINDIR 'Temp\Remove-DNSFilter.log')
 )
 
@@ -342,26 +348,41 @@ function Block-Network {
         }
     }
 
-    # Outbound firewall: block agent binaries and resolver IPs.
-    foreach ($exe in $AgentExeNames) {
-        foreach ($dir in $InstallDirs) {
-            $path = Join-Path $dir $exe
-            $rule = "$FirewallTag prog $exe ($dir)"
-            if (-not (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue)) {
-                if ($PSCmdlet.ShouldProcess($rule, 'Add outbound block firewall rule')) {
-                    New-NetFirewallRule -DisplayName $rule -Direction Outbound -Action Block `
-                        -Program $path -Profile Any -ErrorAction SilentlyContinue | Out-Null
-                }
-            }
-        }
-    }
+    # Outbound firewall. Enumerate our existing rules ONCE (the NetSecurity
+    # cmdlets are slow and a per-item Get-NetFirewallRule in a loop stalls), then
+    # create only what's missing.
+    $existingRules = @(Get-NetFirewallRule -DisplayName "$FirewallTag*" -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty DisplayName)
+
+    # Resolver-IP block is the meaningful network control (one rule, always).
     $ipRule = "$FirewallTag resolvers"
-    if (-not (Get-NetFirewallRule -DisplayName $ipRule -ErrorAction SilentlyContinue)) {
+    if ($existingRules -notcontains $ipRule) {
         if ($PSCmdlet.ShouldProcess($ipRule, 'Add outbound block to DNSFilter resolver IPs')) {
             New-NetFirewallRule -DisplayName $ipRule -Direction Outbound -Action Block `
                 -RemoteAddress $ResolverIPs -Profile Any -ErrorAction SilentlyContinue | Out-Null
             Write-Log "Blocked outbound traffic to resolver IPs: $($ResolverIPs -join ', ')." 'OK'
         }
+    } else {
+        Write-Log 'Resolver-IP firewall rule already present.' 'INFO'
+    }
+
+    # Per-binary rules are opt-in (redundant with the IFEO block, and slow).
+    if ($FirewallBlockBinaries) {
+        $progDirs = @($InstallDirs | Where-Object { $_ -match 'Program Files' })
+        $total = $AgentExeNames.Count * $progDirs.Count
+        $n = 0
+        foreach ($exe in $AgentExeNames) {
+            foreach ($dir in $progDirs) {
+                $n++
+                $rule = "$FirewallTag prog $exe ($dir)"
+                if ($existingRules -notcontains $rule -and
+                    $PSCmdlet.ShouldProcess($rule, "Add outbound block firewall rule ($n/$total)")) {
+                    New-NetFirewallRule -DisplayName $rule -Direction Outbound -Action Block `
+                        -Program (Join-Path $dir $exe) -Profile Any -ErrorAction SilentlyContinue | Out-Null
+                }
+            }
+        }
+        Write-Log "Added per-binary outbound firewall rules ($total requested)." 'OK'
     }
     Write-Log 'Network block applied.' 'OK'
 }
