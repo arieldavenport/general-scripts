@@ -10,6 +10,7 @@ subfolder with its own README.
 | [`file-replication-monitoring/`](file-replication-monitoring/) | Azure-native monitoring for a robocopy `/MIR` mirror from an on-prem Pure SMB share to Azure Files. Wrapper script → Windows Event Log → Azure Monitor Agent → Log Analytics → email alerts. | PowerShell, Bicep, KQL |
 | [`dnsfilter-removal/`](dnsfilter-removal/) | Uninstalls the DNSFilter Windows Roaming Client ("DNS Agent") and blocks reinstalls via hosts sinkhole + firewall, locked install dirs, and IFEO execution blocks. One-command rollback. | PowerShell |
 | [`rapidrecovery-repo-sparsify/`](rapidrecovery-repo-sparsify/) | Reclaims pre-provisioned empty space from Quest Rapid Recovery DVM repository container files by making them NTFS-sparse and punching out never-written zero regions. Multi-threaded scanner with a thread-count sweep, plus a live size monitor. | PowerShell, C# (P/Invoke) |
+| [`file-share-inventory/`](file-share-inventory/) | Read-only file server inventory for SharePoint / OneDrive migration planning: shares, share + NTFS permissions, size and stale data, migration blockers, open files, and DC drive maps / users / groups. Runs locally or fans out over WinRM and merges CSVs. | PowerShell |
 
 ### file-replication-monitoring
 
